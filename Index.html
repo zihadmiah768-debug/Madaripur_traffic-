@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>মাদারীপুর লাইভ ট্রাফিক</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    header {
+      background: #047857; color: white; padding: 12px 15px;
+      font-size: 17px; font-weight: bold; text-align: center;
+    }
+    #map { height: calc(100vh - 135px); width: 100%; }
+    .panel {
+      padding: 10px; background: #fff; display: flex; gap: 6px;
+      flex-wrap: wrap; justify-content: center; box-shadow: 0 -2px 6px rgba(0,0,0,0.1);
+    }
+    select, button {
+      padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px;
+    }
+    .btn-report { background: #dc2626; color: white; border: none; font-weight: bold; }
+    .btn-loc { background: #047857; color: white; border: none; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<header>মাদারীপুর জেলা — লাইভ ট্রাফিক ও রাস্তা</header>
+<div id="map"></div>
+
+<div class="panel">
+  <select id="issueType">
+    <option value="ভারী যানজট">ভারী যানজট</option>
+    <option value="জলাবদ্ধতা / ভাঙা রাস্তা">জলাবদ্ধতা / ভাঙা রাস্তা</option>
+    <option value="রাস্তার কাজ / বন্ধ">রাস্তার কাজ / বন্ধ</option>
+    <option value="দুর্ঘটনা / বাধা">দুর্ঘটনা / বাধা</option>
+    <option value="পুলিশ / চেকপোস্ট">পুলিশ / চেকপোস্ট</option>
+  </select>
+  <button class="btn-report" onclick="sendReport()">রিপোর্ট দিন</button>
+  <button class="btn-loc" onclick="myLocation()">আমার অবস্থান</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+<script>
+  // আপনার Firebase Config এখানে বসান
+  const firebaseConfig = {import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
+// ...
+
+await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+);
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "YOUR_PROJECT",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // মাদারীপুর জেলার কেন্দ্র ও সীমানা
+  const madaripurCenter = [23.1700, 90.2090];
+  const bounds = [[22.9500, 89.9800], [23.4500, 90.4200]];
+
+  const map = L.map('map', {
+    center: madaripurCenter,
+    zoom: 12,
+    minZoom: 10,
+    maxBounds: bounds
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  const markersLayer = L.layerGroup().addTo(map);
+
+  function insideMadaripur(lat, lng) {
+    return lat >= 22.9500 && lat <= 23.4500 && lng >= 89.9800 && lng <= 90.4200;
+  }
+
+  // Firebase-এ লাইভ রিপোর্ট পাঠানো
+  function sendReport() {
+    const center = map.getCenter();
+    if (!insideMadaripur(center.lat, center.lng)) {
+      alert("শুধুমাত্র মাদারীপুর জেলার ভেতরে রিপোর্ট করা যাবে!");
+      return;
+    }
+
+    const type = document.getElementById('issueType').value;
+    db.ref('madaripur_alerts').push({
+      type: type,
+      lat: center.lat,
+      lng: center.lng,
+      timestamp: Date.now()
+    });
+    alert("আপনার রিপোর্টটি মাদারীপুরের ম্যাপে যুক্ত হয়েছে!");
+  }
+
+  // সবার ফোনে লাইভ রিপোর্ট দেখানো (গত ২ ঘণ্টার রিপোর্ট)
+  db.ref('madaripur_alerts').on('value', (snapshot) => {
+    markersLayer.clearLayers();
+    const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+
+    snapshot.forEach((child) => {
+      const data = child.val();
+      if (data.timestamp > twoHoursAgo) {
+        const timeStr = new Date(data.timestamp).toLocaleTimeString('bn-BD', {
+          hour: '2-digit', minute: '2-digit'
+        });
+        L.marker([data.lat, data.lng])
+          .addTo(markersLayer)
+          .bindPopup(`<b>${data.type}</b><br>সময়: ${timeStr}`);
+      }
+    });
+  });
+
+  function myLocation() {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      L.circleMarker([lat, lng], { radius: 8, color: 'blue' }).addTo(map);
+      if (insideMadaripur(lat, lng)) {
+        map.setView([lat, lng], 15);
+      } else {
+        alert("আপনি মাদারীপুরের বাইরে আছেন, ম্যাপ মাদারীপুরে রাখা হয়েছে।");
+      }
+    }, () => alert("ফোনের লোকেশন অন করুন।"));
+  }
+</script>
+</body>
+</html>
